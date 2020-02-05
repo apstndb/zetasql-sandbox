@@ -1,22 +1,29 @@
+package zetasql
+
 import com.google.zetasql.Analyzer
 import com.google.zetasql.AnalyzerOptions
 import com.google.zetasql.SimpleCatalog
-import com.google.zetasql.resolvedast.ResolvedNode
 import com.google.zetasql.resolvedast.ResolvedNodes
-import com.google.zetasql.resolvedast.ResolvedNodes.Visitor
 
 object Main {
-    @JvmStatic
-    fun main(args: Array<String>) {
+    fun f(sql: String): String {
         val analyzerOptions = AnalyzerOptions()
         val catalog = SimpleCatalog("global")
-        val resolvedStatement = Analyzer(analyzerOptions, catalog).analyzeStatement(args[0])
+        val resolvedStatement = Analyzer(analyzerOptions, catalog).analyzeStatement(sql)
         println(resolvedStatement.nodeKindString())
         if (resolvedStatement !is ResolvedNodes.ResolvedQueryStmt) {
-            println("resolvedStatement is ${resolvedStatement.nodeKindString()}")
-            return
+            throw Exception("resolvedStatement is ${resolvedStatement.nodeKindString()}")
         }
-        println(resolvedStatement.outputColumnList.map { s -> "${s.name}:${s.column.type}" }.forEach(System.out::println))
+        return resolvedStatement.outputColumnList.map { s -> "${s.name}:${s.column.type}" }.joinToString(separator=",")
+    }
+
+    @JvmStatic
+    fun main(args: Array<String>) {
+        try {
+            println(f(args[0]))
+        } catch(e: Exception) {
+            println(e)
+        }
         /*
         resolvedStatement.accept(object: Visitor() {
             override fun visit(node: ResolvedNodes.ResolvedQueryStmt) {
