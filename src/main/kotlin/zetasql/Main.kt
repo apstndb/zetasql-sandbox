@@ -41,7 +41,6 @@ object Main {
     fun main(args: Array<String>) {
         try {
             val input = generateSequence(::readLine).joinToString("\n")
-            println(input)
             val str = when (args[0]) {
                 "format" -> format(input)
                 "parse" -> f(input)
