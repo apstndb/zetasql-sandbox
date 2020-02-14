@@ -8,7 +8,7 @@ object Main {
         return SqlFormatter().formatSql(sql);
     }
 
-    fun f(sql: String): String {
+    fun parse(sql: String): String {
         val analyzerOptions = AnalyzerOptions()
         val languageOptions = LanguageOptions()
         languageOptions.setSupportsAllStatementKinds()
@@ -43,8 +43,8 @@ object Main {
             val input = generateSequence(::readLine).joinToString("\n")
             val str = when (args[0]) {
                 "format" -> format(input)
-                "parse" -> f(input)
-                else -> throw Exception("unknown:" + args[0])
+                "parse" -> parse(input)
+                else -> throw Exception("unknown command:" + args[0])
             }
             println(str)
         } catch(e: Exception) {
