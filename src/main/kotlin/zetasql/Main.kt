@@ -15,7 +15,9 @@ object Main {
         languageOptions.enableMaximumLanguageFeatures()
         val analyzerOptions = AnalyzerOptions()
         analyzerOptions.languageOptions = languageOptions
+        val zetaSQLBuiltinFunctionOptions = ZetaSQLBuiltinFunctionOptions()
         val catalog = SimpleCatalog("global")
+        catalog.addZetaSQLFunctions(zetaSQLBuiltinFunctionOptions)
         val analyzer = Analyzer(analyzerOptions, catalog)
         val parseResumeLocation = ParseResumeLocation(sql)
         val resolvedStatements = ArrayList<ResolvedNodes.ResolvedStatement>()
