@@ -5,10 +5,7 @@ on:
       - '*'
 jobs:
   gradle:
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Get the version
         id: get_version
