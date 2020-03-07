@@ -28,6 +28,25 @@ object Main {
         return resolvedStatements.joinToString("\n") { toString(it)}
     }
 
+    fun analyzePrint(sql: String): String {
+        val languageOptions = LanguageOptions()
+        languageOptions.setSupportsAllStatementKinds()
+        languageOptions.enableMaximumLanguageFeatures()
+        val analyzerOptions = AnalyzerOptions()
+        analyzerOptions.languageOptions = languageOptions
+        val zetaSQLBuiltinFunctionOptions = ZetaSQLBuiltinFunctionOptions()
+        val catalog = SimpleCatalog("global")
+        catalog.addZetaSQLFunctions(zetaSQLBuiltinFunctionOptions)
+        val analyzer = Analyzer(analyzerOptions, catalog)
+        val parseResumeLocation = ParseResumeLocation(sql)
+        val resolvedStatements = ArrayList<ResolvedNodes.ResolvedStatement>()
+        // TODO: justify loop condition
+        while (parseResumeLocation.bytePosition != sql.length) {
+            resolvedStatements.add(analyzer.analyzeNextStatement(parseResumeLocation))
+        }
+        return resolvedStatements.joinToString(";\n") { Analyzer.buildStatement(it,catalog)}
+    }
+
     private fun toString(resolvedStatement: ResolvedNodes.ResolvedStatement): String {
         println(resolvedStatement.nodeKindString())
         when (resolvedStatement) {
@@ -48,6 +67,7 @@ object Main {
             val str = when (args[0]) {
                 "format" -> format(input)
                 "analyze" -> analyze(input)
+                "analyze-print" -> analyzePrint(input)
                 "extract-table" -> extractTable(input)
                 else -> throw Exception("unknown command:" + args[0])
             }
