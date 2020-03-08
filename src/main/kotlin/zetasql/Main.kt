@@ -5,7 +5,7 @@ import com.google.zetasql.*
 import com.google.zetasql.resolvedast.ResolvedNodes
 
 object Main {
-    fun extractTableSchemaAsSimpleCatalog(sql: String, project: String? = null, dataset: String? = null): SimpleCatalog {
+    private fun extractTableSchemaAsSimpleCatalog(sql: String, project: String? = null, dataset: String? = null): SimpleCatalog {
         val simpleTables = extractTableSchemaAsSimpleTable(sql, project, dataset)
         val catalog = SimpleCatalog("global")
         simpleTables.forEach { simpleTable ->
@@ -15,18 +15,18 @@ object Main {
             val tableNamePath = simpleTable.fullName.split(".")
             val tableName = tableNamePath.last()
             for (path in tableNamePath.dropLast(1)) {
-                cat = cat.catalogList.find { it -> it.fullName == path } ?: cat.addNewSimpleCatalog(path)
+                cat = cat.catalogList.find { it.fullName == path } ?: cat.addNewSimpleCatalog(path)
             }
             cat.addSimpleTable(tableName, simpleTable)
         }
         return catalog
     }
 
-    fun extractTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
+    private fun extractTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
         val tableReferences = extractTableImpl(sql, project, dataset)
 
         return tableReferences.map{
-            val optionsBuilder = BigQueryOptions.newBuilder();
+            val optionsBuilder = BigQueryOptions.newBuilder()
             val bigquery = optionsBuilder.setProjectId(it[0]).build().service
             val table = bigquery.getTable(it[1], it[2])
             val simpleTable = SimpleTable("${table.tableId.project}.${table.tableId.dataset}.${table.tableId.table}")
@@ -72,17 +72,16 @@ object Main {
             extractTableImpl(sql, project, dataset).joinToString("\n") { it.joinToString(".") }
 
     private fun extractTableImpl(sql: String, project: String?, dataset: String?): List<List<String>> {
-        val list: List<List<String>> = Analyzer.extractTableNamesFromStatement(sql).map{ tableNameList -> tableNameList.flatMap{ it.split(".")}}.map {
+        return Analyzer.extractTableNamesFromStatement(sql).map { tableNameList -> tableNameList.flatMap{ it.split(".")}}.map {
             when (it.size) {
                 1 -> arrayListOf(project, dataset, it[0]).filterNotNull()
                 2 -> arrayListOf(project, it[0], it[1]).filterNotNull()
                 else -> it
             }
         }
-        return list
     }
 
-    fun format(sql: String): String = SqlFormatter().formatSql(sql)
+    private fun format(sql: String): String = SqlFormatter().formatSql(sql)
 
     fun analyze(sql: String): String {
         val catalog = SimpleCatalog("global")
@@ -116,13 +115,13 @@ object Main {
         return resolvedStatements
     }
 
-    fun analyzePrint(sql: String): String {
+    private fun analyzePrint(sql: String): String {
         val catalog = SimpleCatalog("global")
         val resolvedStatements = analyzePrintImpl(sql, catalog)
         return SqlFormatter().formatSql(resolvedStatements.joinToString("\n") { "${Analyzer.buildStatement(it,catalog)};"})
     }
 
-    fun analyzePrintWithBQSchema(sql: String): String {
+    private fun analyzePrintWithBQSchema(sql: String): String {
         val catalog = extractTableSchemaAsSimpleCatalog(sql)
         val resolvedStatements = analyzePrintImpl(sql, catalog)
         return SqlFormatter().formatSql(resolvedStatements.joinToString("\n") { "${Analyzer.buildStatement(it,catalog)};"})
