@@ -1,3 +1,4 @@
+import kotlin.collections.mapOf
 val kotlinVersion = "1.3.61"
 
 plugins {
@@ -30,5 +31,6 @@ configure<JavaPluginConvention> {
 jib {
     container {
         mainClass = "zetasql.Main"
+        environment = mapOf(Pair("SUPPRESS_GCLOUD_CREDS_WARNING", "true"))
     }
 }
