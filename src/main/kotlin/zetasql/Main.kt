@@ -43,9 +43,10 @@ object Main {
         } else {
             TypeFactory.createStructType(field.subFields.map { StructType.StructField(it.name, toZetaSQLType(it)) })
         }
-        return when (field.mode!!) {
+        return when (field.mode) {
             Field.Mode.REPEATED -> TypeFactory.createArrayType(type)
             Field.Mode.NULLABLE, Field.Mode.REQUIRED -> type
+            null -> type
         }
     }
 
