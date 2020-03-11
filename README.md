@@ -1,4 +1,4 @@
-It is personal toy project using ZetaSQL using Java wrapper.
+It is personal toy project using official Java wrapper of ZetaSQL.
 Officially, ZetaSQL supports only Linux so it should be run on Docker.
 
 ## build
