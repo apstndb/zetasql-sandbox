@@ -56,3 +56,10 @@ FROM
       `bigquery-public-data.samples.github_nested`
   ) AS `bigquery-public-data.samples.github_nested_2`;
 ```
+
+## Limitation
+
+Doesn't yet support:
+* Table wildcard(`_TABLE_SUFFIX`)
+* Partitioned table(`_PARTITIONTIME`, `_PARTITIONDATE`)
+* and more
