@@ -1,4 +1,4 @@
-It is personal toy project using official Java wrapper of ZetaSQL by Kotlin.
+It is personal toy project using official Java wrapper of [ZetaSQL](https://github.com/google/zetasql) (Google's SQL dialect parser & analyzer) by Kotlin.
 Officially, ZetaSQL supports only Linux so it should be run on Docker.
 
 ## build
