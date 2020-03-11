@@ -1,9 +1,41 @@
+It is personal toy project using ZetaSQL using Java wrapper.
+Officially, ZetaSQL supports only Linux so it should be run on Docker.
+
+## build
+
 ```
-$ gradle jibDockerBuild --image=zetasql-sandbox
+$ ./gradlew jibDockerBuild --image=zetasql-sandbox
+```
+
+### format
+
+It format query from standard input.
+
+```
+$ echo "SELECT * FROM table" | docker run -i --rm zetasql-sandbox format
+```
+
+from file
+
+```
 $ docker run -i --rm zetasql-sandbox format < input.sql
 ```
 
-Query analysis using actual table metadata.
+### extract-table
+
+It extract referenced table from standard input.
+
+```
+$ echo 'SELECT actor_attributes.* FROM `bigquery-public-data.samples.github_nested`' | docker run -i --rm zetasql-sandbox extract-table
+bigquery-public-data.samples.github_nested
+```
+
+### analyze-print-with-bqschema
+
+Query analysis using actual table metadata. It use GCP credentials by ADC.
+
+Use gcloud credentials
+
 ```
 $ docker run -i --rm --volume ${HOME}/.config/gcloud:/root/.config/gcloud zetasql-sandbox analyze-print-with-bqschema \
              <<< 'SELECT actor_attributes.* FROM `bigquery-public-data.samples.github_nested`'           
