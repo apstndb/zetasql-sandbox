@@ -16,9 +16,9 @@ repositories {
 }
 dependencies {
     implementation(group="com.google.cloud", name="google-cloud-bigquery", version="1.108.1")
-    implementation(group= "com.google.zetasql", name= "zetasql-client", version= "2020.03.1")
-    implementation(group= "com.google.zetasql", name= "zetasql-types", version= "2020.03.1")
-    implementation(group= "com.google.zetasql", name= "zetasql-jni-channel", version= "2020.03.1")
+    implementation(group= "com.google.zetasql", name= "zetasql-client", version= "2020.03.2")
+    implementation(group= "com.google.zetasql", name= "zetasql-types", version= "2020.03.2")
+    implementation(group= "com.google.zetasql", name= "zetasql-jni-channel", version= "2020.03.2")
     implementation(kotlin("stdlib-jdk8"))
     testImplementation("junit:junit:4.12")
     testImplementation(group="org.jetbrains.kotlin", name="kotlin-test-junit",version="1.3.61")
