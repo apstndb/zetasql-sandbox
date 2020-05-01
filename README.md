@@ -61,5 +61,4 @@ FROM
 
 Doesn't yet support:
 * Table wildcard(`_TABLE_SUFFIX`)
-* Partitioned table(`_PARTITIONTIME`, `_PARTITIONDATE`)
 * and more
