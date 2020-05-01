@@ -11,9 +11,10 @@ object Main {
         simpleTables.forEach { simpleTable ->
             if (catalog.tableNameList.none { it == simpleTable.name })
                 catalog.addSimpleTable(simpleTable)
-            var cat: SimpleCatalog = catalog
             val tableNamePath = simpleTable.fullName.split(".")
             val tableName = tableNamePath.last()
+
+            var cat: SimpleCatalog = catalog
             for (path in tableNamePath.dropLast(1)) {
                 cat = cat.catalogList.find { it.fullName == path } ?: cat.addNewSimpleCatalog(path)
             }
@@ -25,14 +26,26 @@ object Main {
     private fun extractTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
         val tableReferences = extractTableImpl(sql, project, dataset)
 
-        return tableReferences.map{
+        return tableReferences.map{tableReference ->
+            println(tableReference)
+            val projectId = tableReference[0]
+            val datasetId = tableReference[1]
+            val tableId = tableReference.drop(2).joinToString(".")
             val optionsBuilder = BigQueryOptions.newBuilder()
-            val bigquery = optionsBuilder.setProjectId(it[0]).build().service
-            val table = bigquery.getTable(it[1], it[2])
+            val bigquery = optionsBuilder.setProjectId(projectId).build().service
+            val table = bigquery.getTable(datasetId, tableId)
             val simpleTable = SimpleTable("${table.tableId.project}.${table.tableId.dataset}.${table.tableId.table}")
-            table.getDefinition<TableDefinition>().schema?.fields?.forEach{ field ->
-                simpleTable.addSimpleColumn(field.name, toZetaSQLType(field))
+
+            val standardTableDefinition = table.getDefinition<StandardTableDefinition>()
+
+            standardTableDefinition.schema?.fields?.filterNotNull()?.forEach{ field -> simpleTable.addSimpleColumn(field.name, toZetaSQLType(field)) }
+
+            val timePartitioning = standardTableDefinition.timePartitioning
+            if (timePartitioning != null && timePartitioning.type != null && timePartitioning.field == null) {
+                simpleTable.addSimpleColumn("_PARTITIONTIME", TypeFactory.createSimpleType(ZetaSQLType.TypeKind.TYPE_TIMESTAMP), true, false)
+                simpleTable.addSimpleColumn("_PARTITIONDATE", TypeFactory.createSimpleType(ZetaSQLType.TypeKind.TYPE_DATE), true, false)
             }
+
             return@map simpleTable
         }
     }
