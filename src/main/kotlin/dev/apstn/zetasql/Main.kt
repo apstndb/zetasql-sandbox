@@ -1,4 +1,4 @@
-package zetasql
+package dev.apstn.zetasql
 
 import com.google.cloud.bigquery.*
 import com.google.zetasql.*
@@ -119,7 +119,7 @@ object Main {
         catalog.addZetaSQLFunctions(zetaSQLBuiltinFunctionOptions)
         val analyzer = Analyzer(analyzerOptions, catalog)
         val resolvedStatements = analyzeSqlStatements(analyzer, sql)
-        return resolvedStatements.joinToString("\n") { toString(it)}
+        return resolvedStatements.joinToString("\n") { toString(it) }
     }
 
     private fun defaultAnalyzerOptions(): AnalyzerOptions {

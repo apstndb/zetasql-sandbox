@@ -32,12 +32,12 @@ configure<JavaPluginConvention> {
 
 jib {
     container {
-        mainClass = "zetasql.Main"
+        mainClass = "dev.apstn.zetasql.Main"
         environment = mapOf(Pair("SUPPRESS_GCLOUD_CREDS_WARNING", "true"))
     }
 }
 
 application {
-    mainClassName = "zetasql.Main"
+    mainClassName = "dev.apstn.zetasql.Main"
 }
 

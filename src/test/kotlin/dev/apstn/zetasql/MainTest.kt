@@ -1,4 +1,4 @@
-package zetasql
+package dev.apstn.zetasql
 
 import org.junit.Test
 import kotlin.test.assertEquals
