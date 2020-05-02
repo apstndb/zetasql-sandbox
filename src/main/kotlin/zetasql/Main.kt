@@ -27,7 +27,6 @@ object Main {
         val tableReferences = extractTableImpl(sql, project, dataset)
 
         return tableReferences.map{tableReference ->
-            println(tableReference)
             val projectId = tableReference[0]
             val datasetId = tableReference[1]
             val tableId = tableReference.drop(2).joinToString(".")
