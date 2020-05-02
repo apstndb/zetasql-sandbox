@@ -72,19 +72,26 @@ object Main {
         return options.service.use {spanner ->
             val dbClient = spanner.getDatabaseClient(DatabaseId.of(project ?: options.projectId, instance, database))
             tableReferences.map {tableReference ->
-                val table = tableReference.joinToString(".")
-                dbClient.singleUse().executeQuery(Statement.newBuilder(
-                        """SELECT COLUMN_NAME, SPANNER_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG = '' AND TABLE_SCHEMA = '' AND TABLE_NAME = @table ORDER BY ORDINAL_POSITION""")
-                        .bind("table").to(table).build()).use { resultSet ->
+                println(tableReference)
+                val tableSchema = if (tableReference.size == 2) tableReference[0] else ""
+                val tableName = tableReference.last()
+                dbClient.singleUse().executeQuery(Statement.newBuilder("""
+SELECT COLUMN_NAME, SPANNER_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_CATALOG = '' AND TABLE_SCHEMA = @table_schema AND TABLE_NAME = @table_name
+ORDER BY ORDINAL_POSITION"""
+                )
+                        .bind("table_schema").to(tableSchema)
+                        .bind("table_name").to(tableName)
+                        .build()).use { resultSet ->
                     val columns = mutableListOf<SimpleColumn>()
                     while (resultSet.next()) {
-                        val row = resultSet
-                        val columnName = row.getString("COLUMN_NAME")
-                        val spannerType = row.getString("SPANNER_TYPE")
-                        columns.add(SimpleColumn(table, columnName, spannerTypeToZetaSQLType(spannerType)))
+                        val columnName = resultSet.getString("COLUMN_NAME")
+                        val spannerType = resultSet.getString("SPANNER_TYPE")
+                        columns.add(SimpleColumn(tableName, columnName, spannerTypeToZetaSQLType(spannerType)))
                     }
 
-                    SimpleTable(table, columns)
+                    SimpleTable(tableReference.joinToString("."), columns)
                 }
             }
         }
