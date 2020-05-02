@@ -1,26 +1,40 @@
 package dev.apstn.zetasql
 
 import com.google.cloud.bigquery.*
+import com.google.cloud.spanner.*
 import com.google.zetasql.*
+import com.google.zetasql.Type
 import com.google.zetasql.resolvedast.ResolvedNodes
 
 object Main {
-    private fun extractTableSchemaAsSimpleCatalog(sql: String, project: String? = null, dataset: String? = null): SimpleCatalog {
-        val simpleTables = extractTableSchemaAsSimpleTable(sql, project, dataset)
+    private fun extractBigQueryTableSchemaAsSimpleCatalog(sql: String, project: String? = null, dataset: String? = null): SimpleCatalog {
+        val simpleTables = extractBigQueryTableSchemaAsSimpleTable(sql, project, dataset)
+        return createSimpleCatalog(simpleTables)
+    }
+
+    private fun extractSpannerTableSchemaAsSimpleCatalog(sql: String, project: String? = null, instance: String? = null, database: String? = null): SimpleCatalog {
+        val simpleTables = extractSpannerTableSchemaAsSimpleTable(sql, project, instance, database)
+        return createSimpleCatalog(simpleTables)
+    }
+
+    private fun createSimpleCatalog(simpleTables: List<SimpleTable>): SimpleCatalog {
         val catalog = SimpleCatalog("global")
         simpleTables.forEach { simpleTable ->
-            if (catalog.tableNameList.none { it == simpleTable.name })
-                catalog.addSimpleTable(simpleTable)
-            val tableNamePath = simpleTable.fullName.split(".")
-            val tableName = tableNamePath.last()
+            addSimpleTableIfAbsent(catalog, simpleTable.name, simpleTable)
 
-            val cat = makeNestedCatalog(catalog, tableNamePath)
-            cat.addSimpleTable(tableName, simpleTable)
+            val tableNamePath = simpleTable.fullName.split(".")
+            val cat = makeNestedCatalogToParent(catalog, tableNamePath)
+            addSimpleTableIfAbsent(cat, tableNamePath.last(), simpleTable)
         }
         return catalog
     }
 
-    private fun makeNestedCatalog(catalog: SimpleCatalog, tableNamePath: List<String>): SimpleCatalog {
+    private fun addSimpleTableIfAbsent(catalog: SimpleCatalog, name: String, simpleTable: SimpleTable) {
+        if (!catalog.tableNameList.contains(name.toLowerCase()))
+            catalog.addSimpleTable(name, simpleTable)
+    }
+
+    private fun makeNestedCatalogToParent(catalog: SimpleCatalog, tableNamePath: List<String>): SimpleCatalog {
         var cat: SimpleCatalog = catalog
         for (path in tableNamePath.dropLast(1)) {
             cat = cat.catalogList.find { it.fullName == path } ?: cat.addNewSimpleCatalog(path)
@@ -28,7 +42,7 @@ object Main {
         return cat
     }
 
-    private fun extractTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
+    private fun extractBigQueryTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
         val tableReferences = extractTableImpl(sql, project, dataset)
 
         return tableReferences.map{tableReference ->
@@ -41,16 +55,59 @@ object Main {
             val simpleTable = SimpleTable("${table.tableId.project}.${table.tableId.dataset}.${table.tableId.table}")
 
             val standardTableDefinition = table.getDefinition<StandardTableDefinition>()
-            createBigQueryColumns(simpleTable, standardTableDefinition).forEach {simpleTable.addSimpleColumn(it)}
-            createBigQueryPseudoColumns(simpleTable, standardTableDefinition).forEach {simpleTable.addSimpleColumn(it)}
+            createBigQueryColumns(simpleTable, standardTableDefinition).forEach { simpleTable.addSimpleColumn(it) }
+            createBigQueryPseudoColumns(simpleTable, standardTableDefinition).forEach { simpleTable.addSimpleColumn(it) }
 
             return@map simpleTable
         }
     }
 
+    private fun extractSpannerTableSchemaAsSimpleTable(sql: String, project: String?, instance: String?, database: String?): List<SimpleTable> {
+        val tableReferences = extractTableImpl(sql)
+
+        val options = SpannerOptions.newBuilder()
+                .setNumChannels(1)
+                .setSessionPoolOption(SessionPoolOptions.newBuilder().setMinSessions(1).setMaxSessions(1).build())
+                .build()
+        return options.service.use {spanner ->
+            val dbClient = spanner.getDatabaseClient(DatabaseId.of(project ?: options.projectId, instance, database))
+            tableReferences.map {tableReference ->
+                val table = tableReference.joinToString(".")
+                dbClient.singleUse().executeQuery(Statement.newBuilder(
+                        """SELECT COLUMN_NAME, SPANNER_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG = '' AND TABLE_SCHEMA = '' AND TABLE_NAME = @table ORDER BY ORDINAL_POSITION""")
+                        .bind("table").to(table).build()).use { resultSet ->
+                    val columns = mutableListOf<SimpleColumn>()
+                    while (resultSet.next()) {
+                        val row = resultSet
+                        val columnName = row.getString("COLUMN_NAME")
+                        val spannerType = row.getString("SPANNER_TYPE")
+                        columns.add(SimpleColumn(table, columnName, spannerTypeToZetaSQLType(spannerType)))
+                    }
+
+                    SimpleTable(table, columns)
+                }
+            }
+        }
+    }
+
+    private fun spannerTypeToZetaSQLType(spannerType: String): Type? {
+        val findResult = "^ARRAY<([^>]*)>$".toRegex().find(spannerType)
+        if (findResult != null) return TypeFactory.createArrayType(spannerTypeToZetaSQLType(findResult.groupValues[1]))
+        return TypeFactory.createSimpleType(when {
+            spannerType == "INT64" -> ZetaSQLType.TypeKind.TYPE_INT64
+            spannerType == "TIMESTAMP" -> ZetaSQLType.TypeKind.TYPE_TIMESTAMP
+            spannerType == "DATE" -> ZetaSQLType.TypeKind.TYPE_DATE
+            spannerType == "FLOAT64" -> ZetaSQLType.TypeKind.TYPE_DOUBLE
+            spannerType == "BOOL" -> ZetaSQLType.TypeKind.TYPE_BOOL
+            spannerType.startsWith("STRING") -> ZetaSQLType.TypeKind.TYPE_STRING
+            spannerType.startsWith("BYTES") -> ZetaSQLType.TypeKind.TYPE_BYTES
+            else -> ZetaSQLType.TypeKind.TYPE_UNKNOWN
+        })
+    }
+
     private fun createBigQueryColumns(simpleTable: SimpleTable, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
         val fields = standardTableDefinition.schema?.fields ?: return listOf()
-        return fields.filterNotNull().map { SimpleColumn(simpleTable.name, it.name, toZetaSQLType(it)) }
+        return fields.filterNotNull().map { SimpleColumn(simpleTable.name, it.name, it.toZetaSQLType()) }
     }
 
     private const val PARTITION_TIME_COLUMN_NAME = "_PARTITIONTIME"
@@ -65,21 +122,21 @@ object Main {
         ).map { SimpleColumn(simpleTable.name, it.key, TypeFactory.createSimpleType(it.value), true, false) }
     }
 
-    private fun toZetaSQLType(field: Field): Type {
-        val type = if (field.subFields == null) {
-            TypeFactory.createSimpleType(toZetaSQLTypeKind(field.type.standardType))
+    private fun Field.toZetaSQLType(): Type {
+        val type = if (this.subFields == null) {
+            TypeFactory.createSimpleType((this.type.standardType.toZetaSQLTypeKind()))
         } else {
-            TypeFactory.createStructType(field.subFields.map { StructType.StructField(it.name, toZetaSQLType(it)) })
+            TypeFactory.createStructType(this.subFields.map { StructType.StructField(it.name, it.toZetaSQLType()) })
         }
-        return when (field.mode) {
+        return when (this.mode) {
             Field.Mode.REPEATED -> TypeFactory.createArrayType(type)
             Field.Mode.NULLABLE, Field.Mode.REQUIRED -> type
             null -> type
         }
     }
 
-    private fun toZetaSQLTypeKind(standardType: StandardSQLTypeName): ZetaSQLType.TypeKind {
-        return when (standardType) {
+    private fun StandardSQLTypeName.toZetaSQLTypeKind(): ZetaSQLType.TypeKind {
+        return when (this) {
             StandardSQLTypeName.INT64 -> ZetaSQLType.TypeKind.TYPE_INT64
             StandardSQLTypeName.BOOL -> ZetaSQLType.TypeKind.TYPE_BOOL
             StandardSQLTypeName.FLOAT64 -> ZetaSQLType.TypeKind.TYPE_DOUBLE
@@ -99,7 +156,7 @@ object Main {
     fun extractTable(sql: String, project: String? = null, dataset: String? = null): String =
             extractTableImpl(sql, project, dataset).joinToString("\n") { it.joinToString(".") }
 
-    private fun extractTableImpl(sql: String, project: String?, dataset: String?): List<List<String>> {
+    private fun extractTableImpl(sql: String, project: String? = null, dataset: String? = null): List<List<String>> {
         return Analyzer.extractTableNamesFromStatement(sql).map { tableNameList -> tableNameList.flatMap{ it.split(".")}}.map {
             when (it.size) {
                 1 -> arrayListOf(project, dataset, it[0]).filterNotNull()
@@ -150,7 +207,13 @@ object Main {
     }
 
     private fun analyzePrintWithBQSchema(sql: String): String {
-        val catalog = extractTableSchemaAsSimpleCatalog(sql)
+        val catalog = extractBigQueryTableSchemaAsSimpleCatalog(sql)
+        val resolvedStatements = analyzePrintImpl(sql, catalog)
+        return SqlFormatter().formatSql(resolvedStatements.joinToString("\n") { "${Analyzer.buildStatement(it,catalog)};"})
+    }
+
+    private fun analyzePrintWithSpannerSchema(sql: String, project: String, instance: String, database: String): Any? {
+        val catalog = extractSpannerTableSchemaAsSimpleCatalog(sql, project, instance, database)
         val resolvedStatements = analyzePrintImpl(sql, catalog)
         return SqlFormatter().formatSql(resolvedStatements.joinToString("\n") { "${Analyzer.buildStatement(it,catalog)};"})
     }
@@ -185,6 +248,7 @@ object Main {
                 "analyze" -> analyze(input)
                 "analyze-print" -> analyzePrint(input)
                 "analyze-print-with-bqschema" -> analyzePrintWithBQSchema(input)
+                "analyze-print-with-spannerschema" -> analyzePrintWithSpannerSchema(input, args[1], args[2], args[3])
                 "extract-table" -> extractTable(input)
                 else -> throw Exception("unknown command:" + args[0])
             }
