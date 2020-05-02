@@ -17,7 +17,12 @@ repositories {
 }
 
 dependencies {
-    implementation(group="com.google.cloud", name="google-cloud-bigquery", version="1.108.1")
+    implementation(platform("com.google.cloud:libraries-bom:3.0.0"))
+
+    implementation(group="com.google.cloud", name="google-cloud-bigquery")
+    implementation(group="com.google.cloud", name="google-cloud-spanner")
+    runtimeOnly(group="io.grpc", name="grpc-netty")
+
     implementation(group= "com.google.zetasql", name= "zetasql-client", version=zetasqlVersion)
     implementation(group= "com.google.zetasql", name= "zetasql-types", version=zetasqlVersion)
     implementation(group= "com.google.zetasql", name= "zetasql-jni-channel", version=zetasqlVersion)
