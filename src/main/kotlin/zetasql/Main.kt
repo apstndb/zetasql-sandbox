@@ -14,13 +14,18 @@ object Main {
             val tableNamePath = simpleTable.fullName.split(".")
             val tableName = tableNamePath.last()
 
-            var cat: SimpleCatalog = catalog
-            for (path in tableNamePath.dropLast(1)) {
-                cat = cat.catalogList.find { it.fullName == path } ?: cat.addNewSimpleCatalog(path)
-            }
+            val cat = makeNestedCatalog(catalog, tableNamePath)
             cat.addSimpleTable(tableName, simpleTable)
         }
         return catalog
+    }
+
+    private fun makeNestedCatalog(catalog: SimpleCatalog, tableNamePath: List<String>): SimpleCatalog {
+        var cat: SimpleCatalog = catalog
+        for (path in tableNamePath.dropLast(1)) {
+            cat = cat.catalogList.find { it.fullName == path } ?: cat.addNewSimpleCatalog(path)
+        }
+        return cat
     }
 
     private fun extractTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
@@ -36,17 +41,28 @@ object Main {
             val simpleTable = SimpleTable("${table.tableId.project}.${table.tableId.dataset}.${table.tableId.table}")
 
             val standardTableDefinition = table.getDefinition<StandardTableDefinition>()
-
-            standardTableDefinition.schema?.fields?.filterNotNull()?.forEach{ field -> simpleTable.addSimpleColumn(field.name, toZetaSQLType(field)) }
-
-            val timePartitioning = standardTableDefinition.timePartitioning
-            if (timePartitioning != null && timePartitioning.type != null && timePartitioning.field == null) {
-                simpleTable.addSimpleColumn("_PARTITIONTIME", TypeFactory.createSimpleType(ZetaSQLType.TypeKind.TYPE_TIMESTAMP), true, false)
-                simpleTable.addSimpleColumn("_PARTITIONDATE", TypeFactory.createSimpleType(ZetaSQLType.TypeKind.TYPE_DATE), true, false)
-            }
+            createBigQueryColumns(simpleTable, standardTableDefinition).forEach {simpleTable.addSimpleColumn(it)}
+            createBigQueryPseudoColumns(simpleTable, standardTableDefinition).forEach {simpleTable.addSimpleColumn(it)}
 
             return@map simpleTable
         }
+    }
+
+    private fun createBigQueryColumns(simpleTable: SimpleTable, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
+        val fields = standardTableDefinition.schema?.fields ?: return listOf()
+        return fields.filterNotNull().map { SimpleColumn(simpleTable.name, it.name, toZetaSQLType(it)) }
+    }
+
+    private const val PARTITION_TIME_COLUMN_NAME = "_PARTITIONTIME"
+    private const val PARTITION_DATE_COLUMN_NAME = "_PARTITIONDATE"
+
+    private fun createBigQueryPseudoColumns(simpleTable: SimpleTable, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
+        val timePartitioning = standardTableDefinition.timePartitioning
+        if (timePartitioning?.type == null || timePartitioning.field != null) return listOf()
+        return mapOf(
+                PARTITION_DATE_COLUMN_NAME to ZetaSQLType.TypeKind.TYPE_DATE,
+                PARTITION_TIME_COLUMN_NAME to ZetaSQLType.TypeKind.TYPE_TIMESTAMP
+        ).map { SimpleColumn(simpleTable.name, it.key, TypeFactory.createSimpleType(it.value), true, false) }
     }
 
     private fun toZetaSQLType(field: Field): Type {
