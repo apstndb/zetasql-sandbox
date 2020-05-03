@@ -5,6 +5,8 @@ import com.google.cloud.spanner.*
 import com.google.zetasql.*
 import com.google.zetasql.Type
 import com.google.zetasql.resolvedast.ResolvedNodes
+import java.util.*
+import kotlin.collections.ArrayList
 
 object Main {
     private fun extractBigQueryTableSchemaAsSimpleCatalog(sql: String, project: String? = null, dataset: String? = null): SimpleCatalog {
@@ -17,12 +19,12 @@ object Main {
         return createSimpleCatalog(simpleTables)
     }
 
-    private fun createSimpleCatalog(simpleTables: List<SimpleTable>): SimpleCatalog {
+    private fun createSimpleCatalog(simpleTables: List<Pair<String, SimpleTable>>): SimpleCatalog {
         val catalog = SimpleCatalog("global")
-        simpleTables.forEach { simpleTable ->
-            addSimpleTableIfAbsent(catalog, simpleTable.name, simpleTable)
+        simpleTables.forEach { (tableFullName, simpleTable) ->
+            val tableNamePath = tableFullName.split(".")
+            addSimpleTableIfAbsent(catalog, tableFullName, simpleTable)
 
-            val tableNamePath = simpleTable.fullName.split(".")
             val cat = makeNestedCatalogToParent(catalog, tableNamePath)
             addSimpleTableIfAbsent(cat, tableNamePath.last(), simpleTable)
         }
@@ -42,7 +44,7 @@ object Main {
         return cat
     }
 
-    private fun extractBigQueryTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<SimpleTable> {
+    private fun extractBigQueryTableSchemaAsSimpleTable(sql: String, project: String? = null, dataset: String? = null): List<Pair<String, SimpleTable>> {
         val tableReferences = extractTableImpl(sql, project, dataset)
 
         return tableReferences.map{tableReference ->
@@ -52,17 +54,18 @@ object Main {
             val optionsBuilder = BigQueryOptions.newBuilder()
             val bigquery = optionsBuilder.setProjectId(projectId).build().service
             val table = bigquery.getTable(datasetId, tableId)
-            val simpleTable = SimpleTable("${table.tableId.project}.${table.tableId.dataset}.${table.tableId.table}")
+            val tableFullName = "${table.tableId.project}.${table.tableId.dataset}.${table.tableId.table}"
+            val simpleTable = SimpleTable(tableFullName)
 
             val standardTableDefinition = table.getDefinition<StandardTableDefinition>()
-            createBigQueryColumns(simpleTable, standardTableDefinition).forEach { simpleTable.addSimpleColumn(it) }
-            createBigQueryPseudoColumns(simpleTable, standardTableDefinition).forEach { simpleTable.addSimpleColumn(it) }
+            createBigQueryColumns(tableFullName, standardTableDefinition).forEach { simpleTable.addSimpleColumn(it) }
+            createBigQueryPseudoColumns(tableFullName, standardTableDefinition).forEach { simpleTable.addSimpleColumn(it) }
 
-            return@map simpleTable
+            return@map tableFullName to simpleTable
         }
     }
 
-    private fun extractSpannerTableSchemaAsSimpleTable(sql: String, project: String?, instance: String?, database: String?): List<SimpleTable> {
+    private fun extractSpannerTableSchemaAsSimpleTable(sql: String, project: String?, instance: String?, database: String?): List<Pair<String, SimpleTable>> {
         val tableReferences = extractTableImpl(sql)
 
         val options = SpannerOptions.newBuilder()
@@ -71,28 +74,38 @@ object Main {
                 .build()
         return options.service.use {spanner ->
             val dbClient = spanner.getDatabaseClient(DatabaseId.of(project ?: options.projectId, instance, database))
-            tableReferences.map {tableReference ->
-                println(tableReference)
+            val tablePaths = tableReferences.map { tableReference ->
                 val tableSchema = if (tableReference.size == 2) tableReference[0] else ""
                 val tableName = tableReference.last()
-                dbClient.singleUse().executeQuery(Statement.newBuilder("""
-SELECT COLUMN_NAME, SPANNER_TYPE
+                Struct.newBuilder()
+                        .set("TABLE_SCHEMA").to(tableSchema)
+                        .set("TABLE_NAME").to(tableName)
+                        .build()
+            }
+            val tablePathType =
+                    com.google.cloud.spanner.Type.struct(
+                            listOf(
+                                    com.google.cloud.spanner.Type.StructField.of("TABLE_SCHEMA", com.google.cloud.spanner.Type.string()),
+                                    com.google.cloud.spanner.Type.StructField.of("TABLE_NAME", com.google.cloud.spanner.Type.string())))
+            // TODO: back-quoted identifier should be treated as case-sensitive but it is not supportedby Analyzer.extractTableNamesFromStatement.
+            dbClient.singleUse().executeQuery(Statement.newBuilder("""
+SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, SPANNER_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_CATALOG = '' AND TABLE_SCHEMA = @table_schema AND TABLE_NAME = @table_name
+WHERE TABLE_CATALOG = ''
+  AND STRUCT<TABLE_SCHEMA STRING, TABLE_NAME STRING>(LOWER(TABLE_SCHEMA), LOWER(TABLE_NAME)) IN (SELECT AS STRUCT LOWER(TABLE_SCHEMA) AS TABLE_SCHEMA, LOWER(TABLE_NAME) AS TABLE_NAME FROM UNNEST(@table_path))
 ORDER BY ORDINAL_POSITION"""
-                )
-                        .bind("table_schema").to(tableSchema)
-                        .bind("table_name").to(tableName)
-                        .build()).use { resultSet ->
-                    val columns = mutableListOf<SimpleColumn>()
-                    while (resultSet.next()) {
-                        val columnName = resultSet.getString("COLUMN_NAME")
-                        val spannerType = resultSet.getString("SPANNER_TYPE")
-                        columns.add(SimpleColumn(tableName, columnName, spannerTypeToZetaSQLType(spannerType)))
-                    }
-
-                    SimpleTable(tableReference.joinToString("."), columns)
+            )
+                    .bind("table_path").toStructArray(tablePathType, tablePaths)
+                    .build()).use { rs ->
+                val simpleTableMap = TreeMap<String, SimpleTable>()
+                while (rs.next()) {
+                    val tableFullPath = listOf(rs.getString("TABLE_SCHEMA"), rs.getString("TABLE_NAME")).filter{it.isNotEmpty()}.joinToString(".")
+                    simpleTableMap
+                            .computeIfAbsent(tableFullPath) { SimpleTable(it)}
+                            .addSimpleColumn(rs.getString("COLUMN_NAME"), spannerTypeToZetaSQLType(rs.getString("SPANNER_TYPE")))
                 }
+
+                simpleTableMap.toList()
             }
         }
     }
@@ -112,21 +125,21 @@ ORDER BY ORDINAL_POSITION"""
         })
     }
 
-    private fun createBigQueryColumns(simpleTable: SimpleTable, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
+    private fun createBigQueryColumns(tableName: String, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
         val fields = standardTableDefinition.schema?.fields ?: return listOf()
-        return fields.filterNotNull().map { SimpleColumn(simpleTable.name, it.name, it.toZetaSQLType()) }
+        return fields.filterNotNull().map { SimpleColumn(tableName, it.name, it.toZetaSQLType()) }
     }
 
     private const val PARTITION_TIME_COLUMN_NAME = "_PARTITIONTIME"
     private const val PARTITION_DATE_COLUMN_NAME = "_PARTITIONDATE"
 
-    private fun createBigQueryPseudoColumns(simpleTable: SimpleTable, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
+    private fun createBigQueryPseudoColumns(tableName: String, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
         val timePartitioning = standardTableDefinition.timePartitioning
         if (timePartitioning?.type == null || timePartitioning.field != null) return listOf()
         return mapOf(
                 PARTITION_DATE_COLUMN_NAME to ZetaSQLType.TypeKind.TYPE_DATE,
                 PARTITION_TIME_COLUMN_NAME to ZetaSQLType.TypeKind.TYPE_TIMESTAMP
-        ).map { SimpleColumn(simpleTable.name, it.key, TypeFactory.createSimpleType(it.value), true, false) }
+        ).map { SimpleColumn(tableName, it.key, TypeFactory.createSimpleType(it.value), true, false) }
     }
 
     private fun Field.toZetaSQLType(): Type {
@@ -164,7 +177,8 @@ ORDER BY ORDINAL_POSITION"""
             extractTableImpl(sql, project, dataset).joinToString("\n") { it.joinToString(".") }
 
     private fun extractTableImpl(sql: String, project: String? = null, dataset: String? = null): List<List<String>> {
-        return Analyzer.extractTableNamesFromStatement(sql).map { tableNameList -> tableNameList.flatMap{ it.split(".")}}.map {
+        val extractTableNamesFromStatement = Analyzer.extractTableNamesFromStatement(sql)
+        return extractTableNamesFromStatement.map { tableNameList -> tableNameList.flatMap{ it.split(".")}}.map {
             when (it.size) {
                 1 -> arrayListOf(project, dataset, it[0]).filterNotNull()
                 2 -> arrayListOf(project, it[0], it[1]).filterNotNull()
