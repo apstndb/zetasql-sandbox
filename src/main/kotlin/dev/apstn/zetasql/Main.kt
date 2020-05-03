@@ -2,6 +2,7 @@ package dev.apstn.zetasql
 
 import com.google.cloud.bigquery.*
 import com.google.cloud.spanner.*
+import com.google.cloud.spanner.Type as SpannerType
 import com.google.zetasql.*
 import com.google.zetasql.Type
 import com.google.zetasql.resolvedast.ResolvedNodes
@@ -83,12 +84,12 @@ object Main {
                         .build()
             }
             val tablePathType =
-                    com.google.cloud.spanner.Type.struct(
+                    SpannerType.struct(
                             listOf(
-                                    com.google.cloud.spanner.Type.StructField.of("TABLE_SCHEMA", com.google.cloud.spanner.Type.string()),
-                                    com.google.cloud.spanner.Type.StructField.of("TABLE_NAME", com.google.cloud.spanner.Type.string())))
+                                    SpannerType.StructField.of("TABLE_SCHEMA", SpannerType.string()),
+                                    SpannerType.StructField.of("TABLE_NAME", SpannerType.string())))
             // TODO: back-quoted identifier should be treated as case-sensitive but it is not supportedby Analyzer.extractTableNamesFromStatement.
-            dbClient.singleUse().executeQuery(Statement.newBuilder("""
+            val statement = Statement.newBuilder("""
 SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, SPANNER_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_CATALOG = ''
@@ -96,39 +97,35 @@ WHERE TABLE_CATALOG = ''
 ORDER BY ORDINAL_POSITION"""
             )
                     .bind("table_path").toStructArray(tablePathType, tablePaths)
-                    .build()).use { rs ->
-                val simpleTableMap = TreeMap<String, SimpleTable>()
-                while (rs.next()) {
-                    val tableFullPath = listOf(rs.getString("TABLE_SCHEMA"), rs.getString("TABLE_NAME")).filter{it.isNotEmpty()}.joinToString(".")
-                    simpleTableMap
-                            .computeIfAbsent(tableFullPath) { SimpleTable(it)}
-                            .addSimpleColumn(rs.getString("COLUMN_NAME"), spannerTypeToZetaSQLType(rs.getString("SPANNER_TYPE")))
-                }
-
-                simpleTableMap.toList()
-            }
+                    .build()
+            dbClient.singleUse().executeQuery(statement).use {
+                sequence {
+                    while (it.next())
+                        yield(it.currentRowAsStruct)
+                }.toList()
+            }.groupingBy{listOf(it.getString("TABLE_SCHEMA"), it.getString("TABLE_NAME")).filter(String::isNotEmpty).joinToString(".")}
+                    .aggregateTo(TreeMap<String, SimpleTable>()) { s, simpleTable, rs, _ ->
+                        val table = simpleTable ?: SimpleTable(s)
+                        table.addSimpleColumn(rs.getString("COLUMN_NAME"), spannerTypeToZetaSQLType(rs.getString("SPANNER_TYPE")))
+                        table
+                    }.toList()
         }
     }
 
     private fun spannerTypeToZetaSQLType(spannerType: String): Type? {
-        val findResult = "^ARRAY<([^>]*)>$".toRegex().find(spannerType)
+        val findResult = """^ARRAY<([^>]*)>$""".toRegex().find(spannerType)
         if (findResult != null) return TypeFactory.createArrayType(spannerTypeToZetaSQLType(findResult.groupValues[1]))
-        return TypeFactory.createSimpleType(when {
-            spannerType == "INT64" -> ZetaSQLType.TypeKind.TYPE_INT64
-            spannerType == "TIMESTAMP" -> ZetaSQLType.TypeKind.TYPE_TIMESTAMP
-            spannerType == "DATE" -> ZetaSQLType.TypeKind.TYPE_DATE
-            spannerType == "FLOAT64" -> ZetaSQLType.TypeKind.TYPE_DOUBLE
-            spannerType == "BOOL" -> ZetaSQLType.TypeKind.TYPE_BOOL
-            spannerType.startsWith("STRING") -> ZetaSQLType.TypeKind.TYPE_STRING
-            spannerType.startsWith("BYTES") -> ZetaSQLType.TypeKind.TYPE_BYTES
-            else -> ZetaSQLType.TypeKind.TYPE_UNKNOWN
+        return TypeFactory.createSimpleType(when (spannerType) {
+            "FLOAT64" -> ZetaSQLType.TypeKind.TYPE_DOUBLE
+            else -> {
+                val typeName = """^([A-Z0-9]+)""".toRegex().find(spannerType)!!.groupValues[1]
+                ZetaSQLType.TypeKind.valueOf("TYPE_$typeName")
+            }
         })
     }
 
-    private fun createBigQueryColumns(tableName: String, standardTableDefinition: StandardTableDefinition): List<SimpleColumn> {
-        val fields = standardTableDefinition.schema?.fields ?: return listOf()
-        return fields.filterNotNull().map { SimpleColumn(tableName, it.name, it.toZetaSQLType()) }
-    }
+    private fun createBigQueryColumns(tableName: String, standardTableDefinition: StandardTableDefinition) =
+            (standardTableDefinition.schema?.fields ?: listOf<Field>()).map { SimpleColumn(tableName, it.name, it.toZetaSQLType()) }
 
     private const val PARTITION_TIME_COLUMN_NAME = "_PARTITIONTIME"
     private const val PARTITION_DATE_COLUMN_NAME = "_PARTITIONDATE"
