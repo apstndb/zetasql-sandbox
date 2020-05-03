@@ -192,6 +192,8 @@ ORDER BY ORDINAL_POSITION"""
     private fun defaultAnalyzerOptions(): AnalyzerOptions {
         val analyzerOptions = AnalyzerOptions()
         analyzerOptions.pruneUnusedColumns = true
+        // TODO: Support positional query parameters
+        analyzerOptions.allowUndeclaredParameters = true
         analyzerOptions.languageOptions = with(LanguageOptions()) {
             enableLanguageFeature(ZetaSQLOptions.LanguageFeature.FEATURE_V_1_3_ALLOW_DASHES_IN_TABLE_NAME)
             setSupportsAllStatementKinds()
