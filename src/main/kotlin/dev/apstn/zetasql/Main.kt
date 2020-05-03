@@ -157,19 +157,8 @@ ORDER BY ORDINAL_POSITION"""
 
     private fun StandardSQLTypeName.toZetaSQLTypeKind(): ZetaSQLType.TypeKind {
         return when (this) {
-            StandardSQLTypeName.INT64 -> ZetaSQLType.TypeKind.TYPE_INT64
-            StandardSQLTypeName.BOOL -> ZetaSQLType.TypeKind.TYPE_BOOL
             StandardSQLTypeName.FLOAT64 -> ZetaSQLType.TypeKind.TYPE_DOUBLE
-            StandardSQLTypeName.NUMERIC -> ZetaSQLType.TypeKind.TYPE_NUMERIC
-            StandardSQLTypeName.STRING -> ZetaSQLType.TypeKind.TYPE_STRING
-            StandardSQLTypeName.BYTES -> ZetaSQLType.TypeKind.TYPE_BYTES
-            StandardSQLTypeName.STRUCT -> ZetaSQLType.TypeKind.TYPE_STRUCT
-            StandardSQLTypeName.ARRAY -> ZetaSQLType.TypeKind.TYPE_ARRAY
-            StandardSQLTypeName.TIMESTAMP -> ZetaSQLType.TypeKind.TYPE_TIMESTAMP
-            StandardSQLTypeName.DATE -> ZetaSQLType.TypeKind.TYPE_DATE
-            StandardSQLTypeName.TIME -> ZetaSQLType.TypeKind.TYPE_TIME
-            StandardSQLTypeName.DATETIME -> ZetaSQLType.TypeKind.TYPE_DATETIME
-            StandardSQLTypeName.GEOGRAPHY -> ZetaSQLType.TypeKind.TYPE_GEOGRAPHY
+            else -> ZetaSQLType.TypeKind.valueOf("TYPE_${this.name}")
         }
     }
 
