@@ -61,4 +61,6 @@ FROM
 
 Doesn't yet support:
 * Table wildcard(`_TABLE_SUFFIX`)
+* Case-sensitiveness of quoted identifier
+* `INFORMATION_SCHEMA` of BigQuery
 * and more
