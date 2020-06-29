@@ -2,6 +2,7 @@ package dev.apstn.zetasql
 
 import com.google.cloud.bigquery.*
 import com.google.cloud.spanner.*
+import com.google.protobuf.util.JsonFormat
 import com.google.cloud.spanner.Type as SpannerType
 import com.google.zetasql.*
 import com.google.zetasql.Type
@@ -204,6 +205,15 @@ object Main {
     private fun analyzePrint(sql: String) =
             analyzePrintForCatalog(sql, createSimpleCatalogContainsBuiltinFunctions())
 
+    private fun analyzePrintJSON(sql: String) =
+            analyzePrintJSONForCatalog(sql, createSimpleCatalogContainsBuiltinFunctions())
+
+    private fun analyzePrintJSONWithBQSchema(sql: String) =
+            analyzePrintJSONForCatalog(sql, extractBigQueryTableSchemaAsSimpleCatalog(sql))
+
+    private fun analyzePrintJSONWithSpannerSchema(sql: String, project: String, instance: String, database: String) =
+            analyzePrintJSONForCatalog(sql, extractSpannerTableSchemaAsSimpleCatalog(sql, project, instance, database))
+
     private fun analyzePrintWithBQSchema(sql: String) =
             analyzePrintForCatalog(sql, extractBigQueryTableSchemaAsSimpleCatalog(sql))
 
@@ -215,6 +225,10 @@ object Main {
 
     private fun analyzeForCatalog(sql: String, catalog: SimpleCatalog) =
             analyzeSqlStatements(Analyzer(defaultAnalyzerOptions(), catalog), sql)
+
+    private fun analyzePrintJSONForCatalog(sql: String, catalog: SimpleCatalog) =
+            analyzeForCatalog(sql, catalog).map {val builder = AnyResolvedStatementProto.newBuilder(); it.serialize(FileDescriptorSetsBuilder(), builder); JsonFormat.printer().print(builder.build())}.joinToString("\n")
+    // SqlFormatter().formatSql(analyzeForCatalog(sql, catalog).joinToString("\n") { "${Analyzer.buildStatement(it, catalog)};" })
 
     private fun toString(resolvedStatement: ResolvedStatement) = when (resolvedStatement) {
         is ResolvedNodes.ResolvedQueryStmt ->
@@ -235,6 +249,9 @@ object Main {
                 "analyze-print" -> analyzePrint(input)
                 "analyze-print-with-bqschema" -> analyzePrintWithBQSchema(input)
                 "analyze-print-with-spannerschema" -> analyzePrintWithSpannerSchema(input, args[1], args[2], args[3])
+                "analyze-print-json" -> analyzePrintJSON(input)
+                "analyze-print-json-with-bqschema" -> analyzePrintJSONWithBQSchema(input)
+                "analyze-print-json-with-spannerschema" -> analyzePrintJSONWithSpannerSchema(input, args[1], args[2], args[3])
                 "extract-table" -> extractTable(input)
                 else -> throw Exception("unknown command:" + args[0])
             }
