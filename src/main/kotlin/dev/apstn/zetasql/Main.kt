@@ -228,7 +228,6 @@ object Main {
 
     private fun analyzePrintJSONForCatalog(sql: String, catalog: SimpleCatalog) =
             analyzeForCatalog(sql, catalog).map {val builder = AnyResolvedStatementProto.newBuilder(); it.serialize(FileDescriptorSetsBuilder(), builder); JsonFormat.printer().print(builder.build())}.joinToString("\n")
-    // SqlFormatter().formatSql(analyzeForCatalog(sql, catalog).joinToString("\n") { "${Analyzer.buildStatement(it, catalog)};" })
 
     private fun toString(resolvedStatement: ResolvedStatement) = when (resolvedStatement) {
         is ResolvedNodes.ResolvedQueryStmt ->
