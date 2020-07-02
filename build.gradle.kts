@@ -1,6 +1,6 @@
 import kotlin.collections.mapOf
 val kotlinVersion = "1.3.61"
-val zetasqlVersion = "2020.04.1"
+val zetasqlVersion = "2020.06.1"
 
 plugins {
     java
