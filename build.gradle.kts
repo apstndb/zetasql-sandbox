@@ -38,7 +38,7 @@ configure<JavaPluginConvention> {
 jib {
     container {
         mainClass = "dev.apstn.zetasql.Main"
-        environment = mapOf(Pair("SUPPRESS_GCLOUD_CREDS_WARNING", "true"))
+        environment = mapOf("SUPPRESS_GCLOUD_CREDS_WARNING" to "true")
     }
 }
 
